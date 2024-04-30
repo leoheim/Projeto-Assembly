@@ -29,8 +29,8 @@ include \masm32\macros\macros.asm
     
     multiLineMessage db "--Opcoes:--", 13, 10, "1. Criptografar", 13, 10, "2. Descriptografar", 13, 10, "3. Sair", 13, 10, 0
     multiLineMessage_len equ $ - multiLineMessage  ; comprimento da msg
-    
-    newline db 13, 10, 0  ; nova linha
+
+    newline db 13, 10, 0  ; nova linha ; Nova linha em branco para usar como espaco entre linhas
     
     message3 db "Escolha sua opcao: ", 0
     message3_len equ $ - message3
@@ -57,17 +57,20 @@ include \masm32\macros\macros.asm
     console_handle_in DWORD 0           ; handle para ReadConsole
     
     ; numero de caracteres lidos
-    chars_read DWORD 0
+    chars_read dd 0
+    chars_read_saida dd 0       ; para o arquivo de said
+    chars_read_entrada dd 0     ; para o arquivo de entrada
 
     fileHandle_entrada DWORD 0                  ; fileHandle para arquivo de entrada
     fileHandle_saida DWORD 0                    ; fileHandle para arquivo de saida
 
-    fileBuffer BYTE 10024 DUP (' ')             ; variavel que recebe a string do arquivo
+    fileBuffer BYTE 8 DUP (0)             ; variavel que recebe a string do arquivo
     fileBuffer_len equ $ - fileBuffer           ; tamanho de fileBuffer
-    buffer_palavra BYTE 10024 DUP(' ')          ; variavel que vai receber a string com a chave aplicada
+    buffer_palavra BYTE 8 DUP(0)          ; variavel que vai receber a string com a chave aplicada
     buffer_palavra_len equ $ - buffer_palavra   ; tamanho de buffer_palavra
     
 .code
+
 start:
     invoke GetStdHandle, STD_OUTPUT_HANDLE
     mov console_handle_out, eax  ; armazenar o handle para saidas
@@ -154,7 +157,7 @@ start:
         invoke WriteConsole, console_handle_out, addr message3, message3_len, NULL, NULL
         invoke ReadConsole, console_handle_in, ADDR buffer4, sizeof buffer4, ADDR chars_read, 0
 
-        ; codigo a seguir provido pelo professor que retira os caracteres desnecessarios de uma string, nesse caso do buffer4
+        ; codigo a seguir provido pelo professor que retira os caracteres desnecessarios de uma string, nesse caso do buffer4, que seria a escolha do usuario
         mov esi, offset buffer4 ; Armazenar apontador da string em esi
         _proximo4:
             mov al, [esi] ; Mover caractere atual para al
@@ -176,9 +179,10 @@ start:
         cmp buffer4, '3'
         je _sair
 
-        ; Parte do codigo que aplica a chave na string do arquivo
+        ; Parte do codigo que aplica a chave de 8 em 8 bytes do arquivo de entrada
 
         _cripto:
+            ; Mensagem na tela mostrando sua escolha
             invoke WriteConsole, console_handle_out, addr message4, message4_len, NULL, NULL
             invoke WriteConsole, console_handle_out, addr newline, 2, NULL, NULL ; linha vazia
 
@@ -186,150 +190,204 @@ start:
             invoke CreateFile, addr buffer1, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL
             mov fileHandle_entrada, eax
 
+            ; No caso da abertura do arquivo der errado:
             cmp fileHandle_entrada, INVALID_HANDLE_VALUE
             je _erro_abrir_arquivo
 
-            invoke ReadFile, fileHandle_entrada, addr fileBuffer, 10024, addr chars_read, NULL ; Lê 128 bytes do arquivo
-            
-            invoke CloseHandle, fileHandle_entrada 
-            
-            
-            _chave2:
+            ; Abre o arquivo de saida
+            invoke CreateFile, addr buffer2, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL
+            mov fileHandle_saida, eax
 
+
+            ; Limpar os buffers a seguir
+
+            _zerar_Buffer_1:
+                xor eax, eax
+
+
+            _1_loop:
+                cmp eax, 8
+                jle _zerar_Buffer_2
+                mov [fileBuffer + eax], 0
+                add eax, 1
+
+            _zerar_Buffer_2:
+                xor eax, eax
+                          
+            _2_loop:
+                cmp eax, 8
+                jle _chave2
+                mov [buffer_palavra + eax], 0
+                add eax, 1
                 
-                ; Aplicar a chave em fileBuffer aqui e passar para buffer_palavra
+                
+            _chave2:
+                ; Ler 8 bytes do arquivo de entrada
+                invoke ReadFile, fileHandle_entrada, addr fileBuffer, 8, addr chars_read_entrada, NULL ; 
+
+                ; Aplicar a chave nesses 8 bytes e guardar em buffer_palavra
 
                 mov edi, OFFSET fileBuffer ; apontar para o endereco da string
                 mov esi, OFFSET numeros_chave ; apontar para o endereco da chave
                 mov ebx, OFFSET buffer_palavra                                     
                 
                 mov ecx, 0
-                mov edx, 0
+               
+                _loop_chave2:    
+                    cmp ecx, 7
+                    jg _saida2
 
-                _loop2:
-                    cmp edx, fileBuffer_len - 1
-                    jge _saida2
+                    mov eax, [esi + ecx * 4] ; pegar digito da chave
 
-                    mov ecx, 0
-                    _loop_chave2:
+                    mov edi, OFFSET fileBuffer ; apontar para o endereco da string
+                    add edi, ecx ; avancar no indice de fileBuffer
+                        
+                    mov ebx, OFFSET buffer_palavra     
+                    add ebx, eax ; pegar a posicao em buffer_palavra onde edi vai ser inserido
+
+                    mov al, [edi] ; pegar o valor no indice de fileBuffer
+
+                    cmp al, 0
+                    je _caracter_nulo
+                        
+                    mov [ebx], al  ; inserir elemento em nova string                                        
+
+                    inc ecx
+                    jmp _loop_chave2
+
                     
-                        cmp ecx, 7
-                        jg _fim_do_loop2
+                ; No caso dos ultimos 8 bytes nao estarem completamente preenchidos, os que estiverem faltando sao completados com ' '
+                _caracter_nulo:
+                mov al, ' '
+                mov [ebx], al  ; inserir elemento em nova string  
+                inc ecx
+                jmp _loop_chave2
 
-                        mov eax, [esi + ecx * 4] ; pegar digito da chave
-
-                        mov edi, OFFSET fileBuffer ; apontar para o endereco da string
-                        add edi, ecx ; avancar no indice de fileBuffer
-                        add edi, edx ; adicionar o contador de 8 bytes do loop externo
-                        
-                        mov ebx, OFFSET buffer_palavra     
-                        add ebx, eax ; pegar a posicao em buffer_palavra onde edi vai ser inserido
-                        add ebx, edx
-
-                        mov al, [edi] ; pegar o valor no indice de fileBuffer
-                        
-                        mov [ebx], al  ; inserir elemento em nova string                                        
-
-                        inc ecx
-                        jmp _loop_chave2
-
-                    _fim_do_loop2:
-
-                        add edx, 8
-
-                        jmp _loop2
 
             _saida2:
-                ;arquivo de saida
+
+                ; Se fileBuffer(onde estao armazenaodos os 8 bytes que a chave vai ser aplicada) for menor que 1, fecha os arquivos 
+                cmp chars_read_entrada, 1
+                jl _fechar_arquivos
+
+                ; Escrever no arquivo de saida os 8 bytes
                 
-                invoke CreateFile, addr buffer2, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL
-                mov fileHandle_saida, eax
-
-                invoke WriteFile, fileHandle_saida, addr buffer_palavra, buffer_palavra_len, addr chars_read, NULL ; 
-
+                invoke WriteFile, fileHandle_saida, addr buffer_palavra, 8, addr chars_read_saida, NULL ;
+                
+                jmp _zerar_Buffer_1
+                 
+            _fechar_arquivos:    
+            
                 invoke CloseHandle, fileHandle_saida
 
+                invoke CloseHandle, fileHandle_entrada
+
+                ; Fechar arquivos e voltar ao inicio do codigo
 
                 jmp _Corpo
 
         ; Parte do codigo que retira a chave aplicada na string do arquivo
             
         _descripto:
+        
+            ; Mensagem mostrando a escolha do usuario
             invoke WriteConsole, console_handle_out, addr message5, message5_len, NULL, NULL
             invoke WriteConsole, console_handle_out, addr newline, 2, NULL, NULL ; linha vazia
-
 
             ; Abre o arquivo de entrada pré-existente
             invoke CreateFile, addr buffer1, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL
             mov fileHandle_entrada, eax
 
+            ; No caso do arquivo nao abrir
             cmp fileHandle_entrada, INVALID_HANDLE_VALUE
             je _erro_abrir_arquivo
 
-            invoke ReadFile, fileHandle_entrada, addr fileBuffer, 10024, addr chars_read, NULL ; 
+            ; abre o arquivo de saida
+            invoke CreateFile, addr buffer2, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL
+            mov fileHandle_saida, eax
+            
 
-            invoke CloseHandle, fileHandle_entrada 
+            ; Zerar os buffers a seguir:
+            
+            _decripto_zerar_Buffer_1:
+                xor eax, eax
 
-            _chave:
 
+            _decripto_1_loop:
+                cmp eax, 8
+                jle _decripto_zerar_Buffer_2
+                mov [fileBuffer + eax], 0
+                add eax, 1
+
+            _decripto_zerar_Buffer_2:
+                xor eax, eax
+                          
+            _decripto_2_loop:
+                cmp eax, 8
+                jle _decripto_chave
+                mov [buffer_palavra + eax], 0
+                add eax, 1
                 
-                ; Aplicar a chave em fileBuffer aqui e passar para buffer_palavra
+                
+            _decripto_chave:
+
+                ; Ler 8 bytes do arquivo de entrada
+                invoke ReadFile, fileHandle_entrada, addr fileBuffer, 8, addr chars_read_entrada, NULL ; 
+
+                ; Retirar a chave aplicada em fileBuffer aqui e passar para buffer_palavra
 
                 mov edi, OFFSET fileBuffer ; apontar para o endereco da string
                 mov esi, OFFSET numeros_chave ; apontar para o endereco da chave
-                mov ebx, OFFSET buffer_palavra ; buffer q msg vai estar criptografada                                   
+                mov ebx, OFFSET buffer_palavra  ; apontar para o endereco da nova string                                   
                 
                 mov ecx, 0
-                mov edx, 0
-
-                _loop:
-                    cmp edx, fileBuffer_len - 1
-                    jge _saida
-
-                    ; Processo para blocos de 8 bytes
-                    mov ecx, 0
-                    _loop_chave:
+               
+                _decripto_loop_chave:    
                     
                         cmp ecx, 7
-                        jg _fim_do_loop
+                        jg _decripto_saida
 
                         mov eax, [esi + ecx * 4] ; pegar digito da chave
-                        add eax, edx
 
-                        mov al, [edi + eax]
+                        mov al, [edi + eax] ; pegar digito correspondente a chave
 
                         mov ebx, OFFSET buffer_palavra  
-                        add ebx, ecx
-                        add ebx, edx
+                        add ebx, ecx  ; pegar indice atual de buffer_palavra
 
-                        mov [ebx], al
+
+                        mov [ebx], al ; inserir no indice atual de buffer_palavra o caracter retirado de fileBuffer
                         
                         inc ecx
-                        jmp _loop_chave
+                        jmp _decripto_loop_chave
 
-                    _fim_do_loop:
+          
 
-                        add edx, 8
+            _decripto_saida:
 
-                        jmp _loop
+                ; Se o tamanho de fileBuffer nao for 8, fechar os arquivos
+                cmp chars_read_entrada, 8
+                jne _decripto_fechar_arquivos
 
-
-
+                ; escrever no arquivo de saida os 8 bytes
                 
-            _saida:
-                
-                ;arquivo de saida
-                
-                invoke CreateFile, addr buffer2, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL
-                mov fileHandle_saida, eax
+                invoke WriteFile, fileHandle_saida, addr buffer_palavra, 8, addr chars_read_saida, NULL ;
+                    
+                jmp _decripto_zerar_Buffer_1
+                 
+            _decripto_fechar_arquivos:    
 
-                invoke WriteFile, fileHandle_saida, addr buffer_palavra, buffer_palavra_len, addr chars_read, NULL ; escreve os bytes no arquivo
-
+                ; Voltar ao inicio e fechar os arquivos
+                
                 invoke CloseHandle, fileHandle_saida
 
-                jmp _Corpo  ; Volta para o inicio
+                invoke CloseHandle, fileHandle_entrada
+
+                jmp _Corpo
+
             
         _sair:  
+
+            ; Caso se o usuario decidir escolher 3, para sair do programa
             invoke WriteConsole, console_handle_out, addr message6, message6_len, NULL, NULL
             invoke WriteConsole, console_handle_out, addr newline, 3, NULL, NULL ; linha vazia
             jmp _FimDoPrograma
