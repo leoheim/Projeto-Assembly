@@ -71,6 +71,87 @@ include \masm32\macros\macros.asm
     
 .code
 
+; FUNCAO QUE APLICA A CHAVE EM fileBuffer E PASSA PARA buffer_palavra
+funcao_cripto PROC
+    push ebp
+    mov ebp, esp
+
+    mov edi, [ebp + 8]  ; apontar para o endereco da string (fileBuffer)
+    mov esi, [ebp + 12] ; apontar para o endereco da chave (numeros_chave)
+    mov ebx, [ebp + 16] ; apontar para o endereco da nova string (buffer_palavra) 
+
+    mov ecx, 0
+               
+    _loop_chave2:    
+        cmp ecx, 7
+        jg _saida_cripto
+
+        mov eax, [esi + ecx * 4] ; pegar digito da chave
+
+        mov edi, [ebp + 8] ; apontar para o endereco da string
+        add edi, ecx ; avancar no indice de fileBuffer
+                        
+        mov ebx, [ebp + 16]     
+        add ebx, eax ; pegar a posicao em buffer_palavra onde edi vai ser inserido
+
+        mov al, [edi] ; pegar o valor no indice de fileBuffer
+
+        cmp al, 0
+        je _caracter_nulo
+                        
+        mov [ebx], al  ; inserir elemento em nova string                                        
+
+        inc ecx
+        jmp _loop_chave2
+
+                    
+    ; No caso dos 8 bytes nao estarem completamente preenchidos, os que estiverem faltando sao completados com ' '
+    _caracter_nulo:
+    mov al, ' '
+    mov [ebx], al  ; inserir elemento em nova string  
+    inc ecx
+    jmp _loop_chave2
+
+    _saida_cripto:
+        pop ebp
+        ret 12 ; limpar 12 bytes dos parametros
+funcao_cripto Endp
+
+; FUNCAO RETIRA A CHAVE DE fileBuffer E PASSA PARA buffer_palavra
+funcao_descripto PROC
+    push ebp
+    mov ebp, esp
+
+    mov edi, [ebp + 8]  ; apontar para o endereco da string (fileBuffer)
+    mov esi, [ebp + 12] ; apontar para o endereco da chave (numeros_chave)
+    mov ebx, [ebp + 16] ; apontar para o endereco da nova string (buffer_palavra) 
+
+    mov ecx, 0
+               
+    _decripto_loop_chave:    
+                    
+        cmp ecx, 7
+        jg _saida_descripto
+
+        mov eax, [esi + ecx * 4] ; pegar digito da chave
+
+        mov al, [edi + eax] ; pegar digito correspondente a chave
+
+        mov ebx, [ebp + 16]  
+        add ebx, ecx  ; pegar indice atual de buffer_palavra
+
+
+        mov [ebx], al ; inserir no indice atual de buffer_palavra o caracter retirado de fileBuffer
+                        
+        inc ecx
+        jmp _decripto_loop_chave
+
+
+    _saida_descripto:
+        pop ebp
+        ret 12
+funcao_descripto Endp
+
 start:
     invoke GetStdHandle, STD_OUTPUT_HANDLE
     mov console_handle_out, eax  ; armazenar o handle para saidas
@@ -227,42 +308,13 @@ start:
 
                 ; Aplicar a chave nesses 8 bytes e guardar em buffer_palavra
 
-                mov edi, OFFSET fileBuffer ; apontar para o endereco da string
-                mov esi, OFFSET numeros_chave ; apontar para o endereco da chave
-                mov ebx, OFFSET buffer_palavra                                     
-                
-                mov ecx, 0
-               
-                _loop_chave2:    
-                    cmp ecx, 7
-                    jg _saida2
+                ; mover os parametros para a pilha e aplicar a funcao que aplica a chave em fileBuffer e passa para buffer_palavra
 
-                    mov eax, [esi + ecx * 4] ; pegar digito da chave
+                push OFFSET buffer_palavra
+                push OFFSET numeros_chave
+                push OFFSET fileBuffer
 
-                    mov edi, OFFSET fileBuffer ; apontar para o endereco da string
-                    add edi, ecx ; avancar no indice de fileBuffer
-                        
-                    mov ebx, OFFSET buffer_palavra     
-                    add ebx, eax ; pegar a posicao em buffer_palavra onde edi vai ser inserido
-
-                    mov al, [edi] ; pegar o valor no indice de fileBuffer
-
-                    cmp al, 0
-                    je _caracter_nulo
-                        
-                    mov [ebx], al  ; inserir elemento em nova string                                        
-
-                    inc ecx
-                    jmp _loop_chave2
-
-                    
-                ; No caso dos ultimos 8 bytes nao estarem completamente preenchidos, os que estiverem faltando sao completados com ' '
-                _caracter_nulo:
-                mov al, ' '
-                mov [ebx], al  ; inserir elemento em nova string  
-                inc ecx
-                jmp _loop_chave2
-
+                call funcao_cripto
 
             _saida2:
 
@@ -336,30 +388,13 @@ start:
 
                 ; Retirar a chave aplicada em fileBuffer aqui e passar para buffer_palavra
 
-                mov edi, OFFSET fileBuffer ; apontar para o endereco da string
-                mov esi, OFFSET numeros_chave ; apontar para o endereco da chave
-                mov ebx, OFFSET buffer_palavra  ; apontar para o endereco da nova string                                   
-                
-                mov ecx, 0
-               
-                _decripto_loop_chave:    
-                    
-                        cmp ecx, 7
-                        jg _decripto_saida
+                ; mover os parametros para a pilha e aplicar a funcao que retira a chave de fileBuffer e passa para buffer_palavra
 
-                        mov eax, [esi + ecx * 4] ; pegar digito da chave
+                push OFFSET buffer_palavra
+                push OFFSET numeros_chave
+                push OFFSET fileBuffer
 
-                        mov al, [edi + eax] ; pegar digito correspondente a chave
-
-                        mov ebx, OFFSET buffer_palavra  
-                        add ebx, ecx  ; pegar indice atual de buffer_palavra
-
-
-                        mov [ebx], al ; inserir no indice atual de buffer_palavra o caracter retirado de fileBuffer
-                        
-                        inc ecx
-                        jmp _decripto_loop_chave
-
+                call funcao_descripto
           
 
             _decripto_saida:
